@@ -1,10 +1,3 @@
-# This example demonstrates Object Detection using Tensorflow Lite
-# It is based on:
-# https://github.com/tensorflow/examples/tree/master/lite/examples/object_detection
-#
-# cv2 references this file and object_detection/object_detector.py from
-# example above replaced with 'self.auto_analyze_resolution'
-
 import time
 from kivy.clock import mainthread
 from kivy.graphics import Color, Rectangle
@@ -12,17 +5,12 @@ from kivy.core.audio import SoundLoader
 import numpy as np
 from camera4kivy import Preview
 
-# ===================
 from kivy.graphics.texture import Texture
 from plyer import tts
 import PIL
 from tflite_runtime.interpreter import Interpreter
 import cv2
 from PIL import Image
-# import threading
-# import time
-
-# ====================
 
 
 class DisparityEstimator:
@@ -36,37 +24,18 @@ class DisparityEstimator:
     self.op_index = 0
     self.disp=None
 
-
+  
   #Performs road profile elimination on the depth data and returns the rest
   def getProcessedDepthImage(self, img):
         img = self.preprocess(img)
-        #start = time.time()()
         self.disp = self.getDisparity(img)
-
         disp_thresh = 0.45*np.max(self.disp)
-
-        #print("Disp: ", time.time()-start, " seconds")
-
-        #start  = time.time()
         v_disp = self.getVDisp(self.disp)
-        #print("vDisp: ", time.time()-start, " seconds")
-
-        #start = time.time()()
         canny_edges = cv2.Canny(v_disp.astype(np.uint8), 30, np.max(v_disp))
         canny_L = self.getLCanny(canny_edges)
         slope, c = self.getHoughLine(canny_L)
-        #print("Slope,c : ",slope, c)
-        #print("canny-hough: ", time.time()-start, " seconds")
-
-        #start = time.time()()
         self.road = self.extractRoadProfile(self.disp, slope, c)
-        #print("Road: ", time.time()-start, " seconds")
-        #print("Road: ", self.road.shape)
-        # cv2.imwrite('road.jpg', self.road)
-
-        #discard farther pixels
         self.road[self.road<disp_thresh]=0
-
         return self.road
 
 
@@ -79,20 +48,6 @@ class DisparityEstimator:
     v_disp = np.zeros((disp.shape[0], max_disp), dtype=float)
     np.add.at(v_disp, (rows, non_negative_disp), 1)
     return v_disp
-
-  # def getVDisp(self, disp):
-  #       disp = np.array(disp).astype(np.uint8)
-  #       max_disp = np.max(disp)
-  #       height = disp.shape[0]
-  #       v_disp = np.zeros((height, int(max_disp)), float)
-  #       for i in range(disp.shape[0]):  # 480
-  #           for j in range(disp.shape[1]):  # 640
-  #               if disp[i][j] >= 0:
-  #                   v_disp[i][disp[i][j] - 1] = v_disp[i][disp[i][j] - 1] + 1
-  #       return v_disp
-
-
-
 
 
   def getLCanny(self, canny_edges):
@@ -158,25 +113,23 @@ class DisparityEstimator:
         slope = (y2_low - y1_low) / (x2_low - x1_low)
         c = y1_low - slope * x1_low
         return slope, c
-
+  
+  #additional road profile extraction to deal with noisy segmentation data 
+  #generated from real world images
   def extractRoadProfile(self, disp, slope, c):
     disp = np.array(disp, dtype=np.uint8)
     u_values = np.arange(disp.shape[0])
     v_values = np.arange(disp.shape[1])
-
     u_grid, v_grid = np.meshgrid(u_values, v_values, indexing='ij')
-
     # Calculate modified disp array by subtracting 1 from each element
     modified_disp = disp - 1
     # Compute the condition mask using self.pointOnLine function
     condition_mask = self.pointOnLine(modified_disp, u_grid, slope, c, 30)
     # Update 'road' with zeros where the condition is True
     road = np.where(condition_mask, 0, disp)
-    # print(road.shape)
     return road
 
-
-
+  
   def preprocess(self, img):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) / 255.0
     img_input = cv2.resize(img, (256,256), interpolation=cv2.INTER_CUBIC)
@@ -184,7 +137,8 @@ class DisparityEstimator:
     std=[0.229, 0.224, 0.225]
     img_input = (img_input - mean) / std
     return img_input
-
+  
+  # Extract disparity image from the captured image
   def getDisparity(self, img):
         input_data = np.array([cv2.resize(img, (256, 256))]).astype("float32")
         self.depthinterpreter.set_tensor(self.input_details[0]['index'], input_data)
@@ -193,7 +147,6 @@ class DisparityEstimator:
         output_data = self.depthinterpreter.get_tensor(self.output_details[self.op_index]['index'])
         disp_img = cv2.normalize(output_data[0], norm, 0, 255, norm_type=cv2.NORM_MINMAX)
         return disp_img
-
 
 
 
@@ -209,8 +162,6 @@ class SemanticSegmentor:
   def getSegments(self, img):
     self.image = img
     return self.getTopFrSegments(self.image)
-
-
 
   def create_ade20k_label_colormap(self):
     """Creates a label colormap used in ADE20K segmentation benchmark.
@@ -282,6 +233,8 @@ class SemanticSegmentor:
       for item in combineArr:
           seg_map[seg_map == item] = 4
       return seg_map
+
+  #Generate the masks for the 6 regions defined in the image
   def getMasks(self, mask):
         w = mask.shape[1]
         h = mask.shape[0]
@@ -310,46 +263,15 @@ class SemanticSegmentor:
         mask1 = mask.copy()
         mask1[int(h * 0.6):int(h), int(w * 0.8):int(w * 1)] = 255
         masks.append(mask1)
-
         return masks
-  # def getMasks(self, mask):
-  #       w = mask.shape[1]
-  #       h = mask.shape[0]
-  #       masks = []
-  #
-  #       mask1 = mask.copy()
-  #       mask1[int(h * 0.1):int(h * 0.4), int(w * 0):int(w * 0.3)] = 255
-  #       masks.append(mask1)
-  #
-  #       mask1 = mask.copy()
-  #       mask1[int(h * 0.1):int(h * 0.4), int(w * 0.3):int(w * 0.7)] = 255
-  #       masks.append(mask1)
-  #
-  #       mask1 = mask.copy()
-  #       mask1[int(h * 0.1):int(h * 0.4), int(w * 0.7):int(w * 1)] = 255
-  #       masks.append(mask1)
-  #
-  #       mask1 = mask.copy()
-  #       mask1[int(h * 0.6):int(h), int(w * 0):int(w * 0.3)] = 255
-  #       masks.append(mask1)
-  #
-  #       mask1 = mask.copy()
-  #       mask1[int(h * 0.6):int(h), int(w * 0.3):int(w * 0.7)] = 255
-  #       masks.append(mask1)
-  #
-  #       mask1 = mask.copy()
-  #       mask1[int(h * 0.6):int(h), int(w * 0.7):int(w * 1)] = 255
-  #       masks.append(mask1)
-  #
-  #       return masks
 
+  # Determine the obstacle with the maximum strength in the middle segment
   def getProminentObstacle(self, seg_map):
         # construct obstacle mask
         mask = np.zeros((seg_map.shape))
         w = mask.shape[1]
         h = mask.shape[0]
 
-        # =================Determine the most prominent obstacle======================
         # centre mask
         mask[int(h * 0.1):int(h), int(w * 0.2):int(w * 0.8)] = 1
         mask = np.array(mask).astype(np.uint8)
@@ -365,8 +287,6 @@ class SemanticSegmentor:
             if (label_strength > maxStrength):
                 maxStrength = label_strength
                 strongLabel = label
-        # =============================================================================
-
         return strongLabel
 
 
@@ -407,9 +327,6 @@ class ClassifyObject(Preview):
                             'dishwasher','screen','blanket','sculpture','hood','sconce','vase','traffic','tray','ashcan','fan','pier',
                             'crt','plate','monitor','bulletin','shower','radiator','glass','clock','flag']
 
-    ####################################
-    # Analyze a Frame - NOT on UI Thread
-    ####################################
 
     def discardFartherObstacles(self, seg_map_op, disp_img):
         disp_thresh = self.disp_thresh
@@ -453,30 +370,12 @@ class ClassifyObject(Preview):
         self.origImg = input_image.copy()
         self.origImg = cv2.resize(self.origImg, (256, 256))
 
-        # # Create threads to execute the two statements
-        # disp_thread = threading.Thread(target=self.get_processed_depth_image, args=(self.origImg,))
-        # seg_thread = threading.Thread(target=self.get_segments, args=(self.origImg,))
-        #
-        # # Start the threads
-        # disp_thread.start()
-        # seg_thread.start()
-        #
-        # # Wait for both threads to complete
-        # disp_thread.join()
-        # seg_thread.join()
-        #
-        # #3 set disparity threshold
-        # while self.disp_img is None:
-        #     pass
-
         self.get_processed_depth_image(self.origImg)
         self.get_segments(self.origImg)
         self.disp_thresh = np.max(self.disp_img)*0.6
 
-        #start = time.time()()
         #4 Discard farther segments
         seg_map = self.discardFartherObstacles(self.seg_map, self.disp_img)
-        #print("Discard obstacles: ", time.time()-start, " seconds")
         # get display image
         self.buildFinalImage(seg_map)
 
@@ -500,8 +399,6 @@ class ClassifyObject(Preview):
             direction = 1
             msg = "Move ahead."
 
-        # #print("MESSAGE: ", msg)
-        # #print("------------------END-----------------------")
         font = cv2.FONT_HERSHEY_SIMPLEX
         org = (10, 20)
         fontScale = 0.25
@@ -578,12 +475,6 @@ class ClassifyObject(Preview):
         br_nobs_mem = self.interp_membership(botright, br_nobs, status[1][2])
         br_obs_mem = self.interp_membership(botright, br_obs, status[1][2])
 
-        #print("Membership...")
-        #print(tl_obs_mem, tm_obs_mem, tr_obs_mem)
-        #print(bl_obs_mem, bm_obs_mem, br_obs_mem)
-
-        #print(" mid nobs: ", tm_nobs_mem, bm_nobs_mem)
-
         # Define fuzzy rules
         # Define fuzzy rules
         rule1 = np.fmax(bm_obs_mem, tm_obs_mem)
@@ -594,12 +485,7 @@ class ClassifyObject(Preview):
         ma_activation = np.fmin(rule1, moveahead)
         mr_activation = np.fmin(rule3, moveright)
 
-        #print("Activations: ", ml_activation, ma_activation, mr_activation)
-
-        # #print("activations computed for each action...")
-
         aggregated = np.fmax(ml_activation, np.fmax(ma_activation, mr_activation))
-        #print(aggregated)
         return np.argmin(aggregated)
 
 
@@ -619,7 +505,6 @@ class ClassifyObject(Preview):
             mask = np.array(mask).astype(np.uint8)
             temp = cv2.bitwise_and(seg_map, seg_map, mask=mask)
             status[i_] = len(temp[temp > 0]) / sizes[i_]
-            #print("sector {}: {}/{}".format(i_, len(temp[temp > 0]),sizes[i_]))
             i_ += 1
         status = np.reshape(status, (2, 3))
         return status
