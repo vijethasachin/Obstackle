@@ -45,3 +45,7 @@ The solution is implemented as a smartphone app using Python, kivy, and Buildoze
 Eventually, an APK will be constructed. buildozer proceeds to deploy the APK onto the linked Android device using adb and initiates it.
 
 Additionally, the APK is saved within your project under the bin directory and can be reinstalled on the Android device using `adb install <APK file>`.
+
+## Acknowledgement
+The starter code for App development using kivy was borrowed from <a href="https://github.com/Android-for-Python/c4k_tflite_example">c4k_tflite_example</a>.
+
