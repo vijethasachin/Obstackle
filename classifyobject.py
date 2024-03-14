@@ -17,29 +17,29 @@ class DisparityEstimator:
 
   def __init__(self):
     self.road = None
-    self.depthinterpreter = Interpreter(model_path="models/midas.tflite")
-    self.depthinterpreter.allocate_tensors()
-    self.input_details = self.depthinterpreter.get_input_details()
-    self.output_details = self.depthinterpreter.get_output_details()
+    self.depth_interpreter = Interpreter(model_path="models/midas.tflite")
+    self.depth_interpreter.allocate_tensors()
+    self.input_details = self.depth_interpreter.get_input_details()
+    self.output_details = self.depth_interpreter.get_output_details()
     self.op_index = 0
     self.disp=None
 
   
   #Performs road profile elimination on the depth data and returns the rest
-  def getProcessedDepthImage(self, img):
+  def get_processed_depth_image(self, img):
         img = self.preprocess(img)
-        self.disp = self.getDisparity(img)
+        self.disp = self.get_disparity(img)
         disp_thresh = 0.45*np.max(self.disp)
-        v_disp = self.getVDisp(self.disp)
+        v_disp = self.get_v_disp(self.disp)
         canny_edges = cv2.Canny(v_disp.astype(np.uint8), 30, np.max(v_disp))
-        canny_L = self.getLCanny(canny_edges)
-        slope, c = self.getHoughLine(canny_L)
-        self.road = self.extractRoadProfile(self.disp, slope, c)
+        canny_L = self.get_l_canny(canny_edges)
+        slope, c = self.get_hough_line(canny_L)
+        self.road = self.extract_road_profile(self.disp, slope, c)
         self.road[self.road<disp_thresh]=0
         return self.road
 
 
-  def getVDisp(self, disp):
+  def get_v_disp(self, disp):
     disp = np.array(disp, dtype=np.uint8)
     max_disp = np.max(disp) + 1
     indices = disp >= 0
@@ -50,7 +50,7 @@ class DisparityEstimator:
     return v_disp
 
 
-  def getLCanny(self, canny_edges):
+  def get_l_canny(self, canny_edges):
         canny_L = canny_edges.copy()
         for i in range(canny_edges.shape[0]):
             for j in (range(canny_edges.shape[1])):
@@ -60,11 +60,11 @@ class DisparityEstimator:
                     break
         return canny_L
 
-  def pointOnLine(self, x, y, m, c, thres):
+  def point_on_line(self, x, y, m, c, thres):
       distances = np.abs(y - (m * x + c))
       return (distances < thres).astype(int)
 
-  def getHoughLine(self, edges):
+  def get_hough_line(self, edges):
         lines = cv2.HoughLines(edges, 4, np.pi / 180, 30)
         if type(lines) == type(None):
             return -np.inf, -np.inf
@@ -116,15 +116,15 @@ class DisparityEstimator:
   
   #additional road profile extraction to deal with noisy segmentation data 
   #generated from real world images
-  def extractRoadProfile(self, disp, slope, c):
+  def extract_road_profile(self, disp, slope, c):
     disp = np.array(disp, dtype=np.uint8)
     u_values = np.arange(disp.shape[0])
     v_values = np.arange(disp.shape[1])
     u_grid, v_grid = np.meshgrid(u_values, v_values, indexing='ij')
     # Calculate modified disp array by subtracting 1 from each element
     modified_disp = disp - 1
-    # Compute the condition mask using self.pointOnLine function
-    condition_mask = self.pointOnLine(modified_disp, u_grid, slope, c, 30)
+    # Compute the condition mask using self.point_on_line function
+    condition_mask = self.point_on_line(modified_disp, u_grid, slope, c, 30)
     # Update 'road' with zeros where the condition is True
     road = np.where(condition_mask, 0, disp)
     return road
@@ -139,12 +139,12 @@ class DisparityEstimator:
     return img_input
   
   # Extract disparity image from the captured image
-  def getDisparity(self, img):
+  def get_disparity(self, img):
         input_data = np.array([cv2.resize(img, (256, 256))]).astype("float32")
-        self.depthinterpreter.set_tensor(self.input_details[0]['index'], input_data)
-        self.depthinterpreter.invoke()
+        self.depth_interpreter.set_tensor(self.input_details[0]['index'], input_data)
+        self.depth_interpreter.invoke()
         norm = np.zeros((256,256))
-        output_data = self.depthinterpreter.get_tensor(self.output_details[self.op_index]['index'])
+        output_data = self.depth_interpreter.get_tensor(self.output_details[self.op_index]['index'])
         disp_img = cv2.normalize(output_data[0], norm, 0, 255, norm_type=cv2.NORM_MINMAX)
         return disp_img
 
@@ -161,7 +161,7 @@ class SemanticSegmentor:
 
   def getSegments(self, img):
     self.image = img
-    return self.getTopFrSegments(self.image)
+    return self.get_topfr_segments(self.image)
 
   def create_ade20k_label_colormap(self):
     """Creates a label colormap used in ADE20K segmentation benchmark.
@@ -224,7 +224,7 @@ class SemanticSegmentor:
       return seg_map
 
 
-  def getTopFrSegments(self, img):
+  def get_topfr_segments(self, img):
       img = cv2.medianBlur(img, ksize=5)
       seg_map = self.generateTFSegments(img, self.seg_interpreter)
       seg_map = np.array(seg_map)
@@ -235,7 +235,7 @@ class SemanticSegmentor:
       return seg_map
 
   #Generate the masks for the 6 regions defined in the image
-  def getMasks(self, mask):
+  def get_masks(self, mask):
         w = mask.shape[1]
         h = mask.shape[0]
         masks = []
@@ -266,7 +266,7 @@ class SemanticSegmentor:
         return masks
 
   # Determine the obstacle with the maximum strength in the middle segment
-  def getProminentObstacle(self, seg_map):
+  def get_prominent_obstacle(self, seg_map):
         # construct obstacle mask
         mask = np.zeros((seg_map.shape))
         w = mask.shape[1]
@@ -300,7 +300,7 @@ class ClassifyObject(Preview):
         self.seg_map = None
         self.disp_img = None
         self.disp_thresh = None
-        self.prominentObstacle = None
+        self.prominent_obstacle = None
         self.origImg = None
         self.analyzed_texture = None
         self.frame = None
@@ -309,7 +309,7 @@ class ClassifyObject(Preview):
         self.actionPool=[]
         self.prevDrn = -1
         self.dispEstimator = DisparityEstimator()
-        self.semSegmentor = SemanticSegmentor()
+        self.sem_segmentor = SemanticSegmentor()
         self.sound = SoundLoader.load('audio/beep.wav')
         self.labels_list = ['others','wall', 'building','sky','floor','tree','ceiling',
                             'road', 'bed','windowpane','grass','cabinet','sidewalk','person','earth','door',
@@ -328,9 +328,9 @@ class ClassifyObject(Preview):
                             'crt','plate','monitor','bulletin','shower','radiator','glass','clock','flag']
 
 
-    def discardFartherObstacles(self, seg_map_op, disp_img):
+    def discard_farther_obstacles(self, seg_map_op, disp_img):
         disp_thresh = self.disp_thresh
-        componentMask = np.zeros(seg_map_op.shape, dtype='uint8')
+        component_mask = np.zeros(seg_map_op.shape, dtype='uint8')
         disp_img = np.array(disp_img).astype("uint8")
 
         for label in np.unique(seg_map_op):
@@ -351,18 +351,18 @@ class ClassifyObject(Preview):
                 max_disp = np.max(temp_disp)#np.mean([temp_disp[temp_disp > 0]])
                 # prepare a component mask to get the final obstacle and road segments
                 if (max_disp > disp_thresh):
-                    componentMask = componentMask + temp_mask
-        seg_map_op = cv2.bitwise_and(seg_map_op.astype("uint8"), componentMask, mask = disp_img)
+                    component_mask = component_mask + temp_mask
+        seg_map_op = cv2.bitwise_and(seg_map_op.astype("uint8"), component_mask, mask = disp_img)
         return seg_map_op
 
 
 
     def get_processed_depth_image(self, img):
-        self.disp_img = self.dispEstimator.getProcessedDepthImage(img)
+        self.disp_img = self.dispEstimator.get_processed_depth_image(img)
 
     def get_segments(self, img):
         #start = time.time()()
-        self.seg_map = self.semSegmentor.getSegments(img)
+        self.seg_map = self.sem_segmentor.getSegments(img)
         #print("Seg time: ", time.time()-start, " seconds")
 
     def detect(self, input_image: np.ndarray):
@@ -375,14 +375,14 @@ class ClassifyObject(Preview):
         self.disp_thresh = np.max(self.disp_img)*0.6
 
         #4 Discard farther segments
-        seg_map = self.discardFartherObstacles(self.seg_map, self.disp_img)
+        seg_map = self.discard_farther_obstacles(self.seg_map, self.disp_img)
         # get display image
-        self.buildFinalImage(seg_map)
+        self.build_final_image(seg_map)
 
         #6 Get Prominent Obstacle
-        self.prominentObstacle = self.semSegmentor.getProminentObstacle(seg_map)
+        self.prominent_obstacle = self.sem_segmentor.get_prominent_obstacle(seg_map)
 
-        if self.prominentObstacle not in [-1,4]:
+        if self.prominent_obstacle not in [-1,4]:
             #7 compute OStatus
             ostatus = self.computeOstatus(seg_map)
             # #print("Status: ", ostatus)
@@ -392,7 +392,7 @@ class ClassifyObject(Preview):
 
             sectors = ['left', 'ahead', 'right']
 
-            obstacle = self.labels_list[self.prominentObstacle].split(';')[0]
+            obstacle = self.labels_list[self.prominent_obstacle].split(';')[0]
             msg = obstacle + " ahead. Move "+ sectors[direction]
 
         else:
@@ -493,7 +493,7 @@ class ClassifyObject(Preview):
         mask = np.zeros(seg_map.shape)
         w = mask.shape[1]
         h = mask.shape[0]
-        masks = self.semSegmentor.getMasks(mask)
+        masks = self.sem_segmentor.get_masks(mask)
         status = [0, 0, 0, 0, 0, 0]
         i_ = 0
 
@@ -510,8 +510,8 @@ class ClassifyObject(Preview):
         return status
 
 
-    def buildFinalImage(self, seg_map):
-        seg_image = self.semSegmentor.label_to_color_image(seg_map).astype(np.uint8)
+    def build_final_image(self, seg_map):
+        seg_image = self.sem_segmentor.label_to_color_image(seg_map).astype(np.uint8)
         w = seg_image.shape[1]
         h = seg_image.shape[0]
 
@@ -561,4 +561,3 @@ class ClassifyObject(Preview):
             Color(1, 1, 1, 1)
             Rectangle(texture=self.analyzed_texture,
                       size=tex_size, pos=tex_pos)
-
